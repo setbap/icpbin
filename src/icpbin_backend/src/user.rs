@@ -20,13 +20,13 @@ impl Storable for UserProfile {
     };
 }
 
-#[derive(CandidType, Serialize, Deserialize)]
+#[derive(CandidType, Serialize, Deserialize, Clone)]
 pub struct UserProfile {
     pub id: Principal,
     pub name: String,
     pub gravatar: String,
     pub bio: String,
-    pub post_ids: Vec<String>,
+    pub paste_indexs: Vec<String>,
 }
 
 #[derive(CandidType, Serialize, Deserialize)]
@@ -50,7 +50,7 @@ impl UserProfile {
             name: info.name,
             gravatar: info.gravatar,
             bio: info.bio,
-            post_ids: Vec::new(),
+            paste_indexs: Vec::new(),
         }
     }
 
@@ -64,6 +64,10 @@ impl UserProfile {
         if let Some(gravatar) = info.gravatar {
             self.gravatar = gravatar;
         }
+    }
+
+    pub fn add_new_paste(&mut self, paste_index: String) {
+        self.paste_indexs.push(paste_index);
     }
 }
 

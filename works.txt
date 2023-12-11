@@ -1,4 +1,1 @@
-- finish paste model
-- add paste local thread 
-....
-
+ - check paste timer
