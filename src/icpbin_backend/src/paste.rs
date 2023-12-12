@@ -2,10 +2,11 @@ use candid::{CandidType, Decode, Encode, Principal};
 use ic_stable_structures::{storable::Bound, Storable};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use uuid::Uuid;
 
-pub const MAX_PASTE_VALUE_SIZE: u32 = 100;
+pub const MAX_PASTE_VALUE_SIZE: u32 = 16 * 1024;
+pub const DELETE_TEPMLATE: &str = "DELETE";
 
+// allow to store Paste Data in the stable memory
 impl Storable for PasteData {
     fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
         Cow::Owned(Encode!(self).unwrap())
@@ -23,14 +24,18 @@ impl Storable for PasteData {
 
 #[derive(CandidType, Serialize, Deserialize, Clone)]
 pub struct PasteData {
+    // id is the unique identifier of the paste
     pub id: String,
     pub name: String,
     pub description: String,
     pub content: String,
+    // creator is the principal who created the paste and it will be null when the paste is created by not logged in user
     pub creator: Option<Principal>,
-    pub create_date: i64,
-    pub update_date: i64,
+    // track number of change in paste
+    pub version: i32,
+    // time to convert date to delete, it is base on second
     pub expire_date: u32,
+    // container to push any extra data about PasteData
     pub tags: Vec<String>,
 }
 
@@ -65,23 +70,17 @@ fn _create_tags(input: String) -> Vec<String> {
         .collect::<Vec<String>>()
 }
 
-fn _get_now() -> i64 {
-    chrono::Utc::now().timestamp_micros()
-}
-
 impl PasteData {
-    pub fn create(id: Option<Principal>, info: PasteDataCreator) -> Self {
-        let now = _get_now();
+    pub fn create(id: u64, user_id: Option<Principal>, info: PasteDataCreator) -> Self {
         PasteData {
-            id: Uuid::new_v4().to_string(),
+            id: id.to_string(),
             name: info.name,
-            creator: id,
+            creator: user_id,
             description: info.description,
             expire_date: info.expire_date,
             content: info.content,
             tags: _create_tags(info.tags),
-            create_date: now,
-            update_date: now,
+            version: 1,
         }
     }
 
@@ -90,29 +89,30 @@ impl PasteData {
             self.name = name;
         }
         if let Some(desc) = info.description {
-            self.content = desc;
+            self.description = desc;
         }
         if let Some(content) = info.content {
             self.content = content;
         }
-
         if let Some(tags) = info.tags {
             self.tags = _create_tags(tags);
         }
 
-        self.update_date = _get_now();
+        // increase number of change
+        self.version += 1;
     }
 
+    // clear the content of the paste
     pub fn clear(&mut self) {
-        self.name = "__DELETED__".to_string();
-        self.content = "__DELETED__".to_string();
+        self.name = DELETE_TEPMLATE.to_string();
+        self.content = DELETE_TEPMLATE.to_string();
         self.tags = Vec::new();
     }
 }
 
 #[derive(candid::CandidType, Deserialize, Serialize)]
 pub enum IcpPasteError {
-    InValidShortURL,
+    ShortUrlShouldBeBetween4And10,
     ShortUrlAlreadyExist,
     PasteNotFound,
     PasteAlreadyExist,

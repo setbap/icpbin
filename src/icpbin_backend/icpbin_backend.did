@@ -1,0 +1,63 @@
+type IcpPasteError = variant {
+  PasteAlreadyExist;
+  WrongExpireDate;
+  PasteNotFound;
+  PasteIsNotAccessable;
+  ShortUrlAlreadyExist;
+  InValidShortURL;
+};
+type IcpUserError = variant { UserAlreadyExist; UserNotFound };
+type PasteData = record {
+  id : text;
+  creator : opt principal;
+  content : text;
+  name : text;
+  tags : vec text;
+  description : text;
+  version : int32;
+  expire_date : nat32;
+};
+type PasteDataCreator = record {
+  content : text;
+  name : text;
+  tags : text;
+  description : text;
+  expire_date : nat32;
+  short_url : opt text;
+};
+type PasteDataUpdater = record {
+  content : opt text;
+  name : opt text;
+  tags : opt text;
+  description : opt text;
+};
+type Result = variant { Ok : PasteData; Err : IcpPasteError };
+type Result_1 = variant { Ok : UserProfile; Err : IcpUserError };
+type Result_2 = variant { Ok : vec PasteData; Err : IcpPasteError };
+type UserProfile = record {
+  id : principal;
+  bio : text;
+  paste_indexs : vec text;
+  name : text;
+  gravatar : text;
+};
+type UserProfileCreator = record { bio : text; name : text; gravatar : text };
+type UserProfileUpdater = record {
+  bio : opt text;
+  name : opt text;
+  gravatar : opt text;
+};
+service : {
+  create_new_paste : (PasteDataCreator) -> (Result);
+  create_new_profile : (UserProfileCreator) -> (Result_1);
+  find_paste_by_extension : (text) -> (Result_2) query;
+  find_paste_by_name : (text) -> (Result_2) query;
+  find_paste_by_short_url : (text) -> (Result) query;
+  find_paste_by_tag : (text) -> (Result_2) query;
+  get_last_n_paste : (opt nat8) -> (Result_2) query;
+  get_paste_by_index : (text) -> (Result) query;
+  get_paste_by_user : (opt principal) -> (Result_2) query;
+  get_self_info : () -> (Result_1) query;
+  update_paste : (text, PasteDataUpdater) -> (Result);
+  update_user_profile : (UserProfileUpdater) -> (Result_1);
+}

@@ -8,28 +8,32 @@ use user::{IcpUserError, UserProfile, UserProfileCreator, UserProfileUpdater};
 
 mod paste;
 mod user;
-type Memory = VirtualMemory<DefaultMemoryImpl>;
 
 const SECOND_IN_YEAR: u32 = 31536000;
 const FOUR_HOUR_IN_SEC: u32 = 4 * 60 * 60;
+
+type Memory = VirtualMemory<DefaultMemoryImpl>;
 
 thread_local! {
 
     static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> =
         RefCell::new(MemoryManager::init(DefaultMemoryImpl::default()));
 
+    // a container for all the users, map user id to user profile
     static USERS: RefCell<StableBTreeMap<String, UserProfile, Memory>> = RefCell::new(
         StableBTreeMap::init(
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(0))),
         )
     );
 
+    // a container for all the paste, map paste id to pasteData
     static PASTES: RefCell<StableBTreeMap<String, PasteData, Memory>> = RefCell::new(
         StableBTreeMap::init(
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(1))),
         )
     );
 
+    // an extra container that helps to generate short url for paste
     static PASTES_SHORT_URL: RefCell<StableBTreeMap<String, String, Memory>> = RefCell::new(
         StableBTreeMap::init(
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(2))),
@@ -58,10 +62,11 @@ fn create_new_profile(value: UserProfileCreator) -> Result<UserProfile, IcpUserE
         return Err(IcpUserError::UserAlreadyExist);
     }
     let new_profile = UserProfile::create(caller, value);
-    let updated_user = USERS
-        .with(|p| p.borrow_mut().insert(new_profile.id.to_text(), new_profile))
-        .unwrap();
-    Ok(updated_user)
+    USERS.with(|p| {
+        p.borrow_mut()
+            .insert(new_profile.id.to_text(), new_profile.clone())
+    });
+    Ok(new_profile)
 }
 
 #[ic_cdk::update]
@@ -212,7 +217,7 @@ fn create_new_paste(value: PasteDataCreator) -> Result<PasteData, IcpPasteError>
     let short_url = value.short_url.clone();
     let short = short_url.clone().unwrap_or("".to_string());
     if short_url.is_some() && (short.len() < 4 || short.len() > 10) {
-        return Err(IcpPasteError::InValidShortURL);
+        return Err(IcpPasteError::ShortUrlShouldBeBetween4And10);
     }
     if short_url.is_some() && _is_short_url_exist(&short) {
         return Err(IcpPasteError::ShortUrlAlreadyExist);
@@ -226,47 +231,43 @@ fn create_new_paste(value: PasteDataCreator) -> Result<PasteData, IcpPasteError>
         None
     };
 
-    let expire_time = if is_user_anon {
+    let _expire_time = if is_user_anon {
         FOUR_HOUR_IN_SEC
-    } else if value.expire_date < 60u32 && value.expire_date > SECOND_IN_YEAR {
+    } else if value.expire_date < 1u32 && value.expire_date > SECOND_IN_YEAR {
         return Err(IcpPasteError::WrongExpireDate);
     } else {
         value.expire_date
     };
-    let new_paste = PasteData::create(user_id, value);
+    let len = PASTES.with(|s| s.borrow().len());
+    let new_paste = PasteData::create(len, user_id, value);
     let new_paste_id = new_paste.id.to_string();
-    let updated_user = PASTES
-        .with(|p| {
-            p.borrow_mut()
-                .insert(new_paste_id.clone(), new_paste.clone())
-        })
-        .unwrap();
 
     if short_url.is_some() {
-        PASTES_SHORT_URL
-            .with(|p| {
-                p.borrow_mut()
-                    .insert(short_url.unwrap(), new_paste_id.clone())
-            })
-            .unwrap();
+        PASTES_SHORT_URL.with(|p| {
+            p.borrow_mut()
+                .insert(short_url.unwrap(), new_paste_id.clone())
+        });
     }
 
     if !is_user_anon {
-        let mut user = user.unwrap();
-        user.add_new_paste(new_paste_id.clone());
-        USERS
-            .with(|p| p.borrow_mut().insert(user.id.to_text(), user))
-            .unwrap();
-    }
+        PASTES.with(|p| {
+            p.borrow_mut()
+                .insert(new_paste_id.clone(), new_paste.clone())
+        });
 
-    ic_cdk_timers::set_timer(Duration::from_secs(1 as u64), move || {
-        let mut paste = new_paste.clone();
-        paste.clear();
-        PASTES
-            .with(|p| p.borrow_mut().insert(new_paste_id, paste))
-            .unwrap();
+        let mut user = user.unwrap();
+
+        user.add_new_paste(new_paste_id.clone());
+
+        USERS.with(|p| p.borrow_mut().insert(user.id.to_text(), user));
+    }
+    let mut cloned_paste = new_paste.clone();
+
+    ic_cdk_timers::set_timer(Duration::from_secs(_expire_time as u64), move || {
+        cloned_paste.clear();
+        PASTES.with(|p| p.borrow_mut().insert(new_paste_id, cloned_paste));
     });
-    Ok(updated_user)
+    Ok(new_paste)
 }
 
 #[ic_cdk::update]
@@ -291,3 +292,6 @@ fn update_paste(paste_id: String, value: PasteDataUpdater) -> Result<PasteData, 
 }
 
 // endregion: Paste
+
+// create candid file
+ic_cdk::export_candid!();

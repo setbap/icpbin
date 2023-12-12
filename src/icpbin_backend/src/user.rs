@@ -3,8 +3,10 @@ use ic_stable_structures::{storable::Bound, Storable};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
-pub const MAX_USER_VALUE_SIZE: u32 = 100;
+// profile should be smaller than 1024 bytes
+pub const MAX_USER_VALUE_SIZE: u32 = 1024;
 
+// allow to store Paste Data in the stable memory
 impl Storable for UserProfile {
     fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
         Cow::Owned(Encode!(self).unwrap())
@@ -24,8 +26,11 @@ impl Storable for UserProfile {
 pub struct UserProfile {
     pub id: Principal,
     pub name: String,
+    // image url for provile
     pub gravatar: String,
+    // any extra data about the user
     pub bio: String,
+    // to keep track of the pastes of user and improve performance
     pub paste_indexs: Vec<String>,
 }
 
@@ -50,6 +55,7 @@ impl UserProfile {
             name: info.name,
             gravatar: info.gravatar,
             bio: info.bio,
+            // when create new user there is no pastes
             paste_indexs: Vec::new(),
         }
     }
