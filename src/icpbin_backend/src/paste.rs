@@ -30,7 +30,7 @@ pub struct PasteData {
     pub creator: Option<Principal>,
     pub create_date: i64,
     pub update_date: i64,
-    pub expire_date: u64,
+    pub expire_date: u32,
     pub tags: Vec<String>,
 }
 
@@ -40,7 +40,7 @@ pub struct PasteDataCreator {
     pub name: String,
     pub description: String,
     pub content: String,
-    pub expire_date: u64,
+    pub expire_date: u32,
     pub tags: String,
 }
 
@@ -49,7 +49,6 @@ pub struct PasteDataUpdater {
     pub name: Option<String>,
     pub description: Option<String>,
     pub content: Option<String>,
-    pub expire_date: Option<u64>,
     pub tags: Option<String>,
 }
 
@@ -97,7 +96,17 @@ impl PasteData {
             self.content = content;
         }
 
+        if let Some(tags) = info.tags {
+            self.tags = _create_tags(tags);
+        }
+
         self.update_date = _get_now();
+    }
+
+    pub fn clear(&mut self) {
+        self.name = "__DELETED__".to_string();
+        self.content = "__DELETED__".to_string();
+        self.tags = Vec::new();
     }
 }
 
@@ -108,4 +117,5 @@ pub enum IcpPasteError {
     PasteNotFound,
     PasteAlreadyExist,
     PasteIsNotAccessable,
+    WrongExpireDate,
 }

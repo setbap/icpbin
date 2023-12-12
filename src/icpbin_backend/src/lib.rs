@@ -3,11 +3,15 @@ use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemor
 use ic_stable_structures::{DefaultMemoryImpl, StableBTreeMap};
 use paste::{IcpPasteError, PasteData, PasteDataCreator, PasteDataUpdater};
 use std::cell::RefCell;
+use std::time::Duration;
 use user::{IcpUserError, UserProfile, UserProfileCreator, UserProfileUpdater};
 
 mod paste;
 mod user;
 type Memory = VirtualMemory<DefaultMemoryImpl>;
+
+const SECOND_IN_YEAR: u32 = 31536000;
+const FOUR_HOUR_IN_SEC: u32 = 4 * 60 * 60;
 
 thread_local! {
 
@@ -221,10 +225,21 @@ fn create_new_paste(value: PasteDataCreator) -> Result<PasteData, IcpPasteError>
     } else {
         None
     };
+
+    let expire_time = if is_user_anon {
+        FOUR_HOUR_IN_SEC
+    } else if value.expire_date < 60u32 && value.expire_date > SECOND_IN_YEAR {
+        return Err(IcpPasteError::WrongExpireDate);
+    } else {
+        value.expire_date
+    };
     let new_paste = PasteData::create(user_id, value);
     let new_paste_id = new_paste.id.to_string();
     let updated_user = PASTES
-        .with(|p| p.borrow_mut().insert(new_paste_id.clone(), new_paste))
+        .with(|p| {
+            p.borrow_mut()
+                .insert(new_paste_id.clone(), new_paste.clone())
+        })
         .unwrap();
 
     if short_url.is_some() {
@@ -238,11 +253,19 @@ fn create_new_paste(value: PasteDataCreator) -> Result<PasteData, IcpPasteError>
 
     if !is_user_anon {
         let mut user = user.unwrap();
-        user.add_new_paste(new_paste_id);
+        user.add_new_paste(new_paste_id.clone());
         USERS
             .with(|p| p.borrow_mut().insert(user.id.to_text(), user))
             .unwrap();
     }
+
+    ic_cdk_timers::set_timer(Duration::from_secs(1 as u64), move || {
+        let mut paste = new_paste.clone();
+        paste.clear();
+        PASTES
+            .with(|p| p.borrow_mut().insert(new_paste_id, paste))
+            .unwrap();
+    });
     Ok(updated_user)
 }
 
