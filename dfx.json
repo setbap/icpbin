@@ -4,19 +4,6 @@
       "candid": "src/icpbin_backend/icpbin_backend.did",
       "package": "icpbin_backend",
       "type": "rust"
-    },
-    "icpbin_frontend": {
-      "dependencies": [
-        "icpbin_backend"
-      ],
-      "frontend": {
-        "entrypoint": "src/icpbin_frontend/src/index.html"
-      },
-      "source": [
-        "src/icpbin_frontend/assets",
-        "dist/icpbin_frontend/"
-      ],
-      "type": "assets"
     }
   },
   "defaults": {

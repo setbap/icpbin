@@ -1,10 +1,10 @@
 type IcpPasteError = variant {
+  ShortUrlShouldBeBetween4And10;
   PasteAlreadyExist;
   WrongExpireDate;
   PasteNotFound;
   PasteIsNotAccessable;
   ShortUrlAlreadyExist;
-  InValidShortURL;
 };
 type IcpUserError = variant { UserAlreadyExist; UserNotFound };
 type PasteData = record {
