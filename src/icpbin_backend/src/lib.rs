@@ -18,7 +18,6 @@ const MIN_EXPIRE_TIME: u32 = 30;
 type Memory = VirtualMemory<DefaultMemoryImpl>;
 
 thread_local! {
-
     static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> =
         RefCell::new(MemoryManager::init(DefaultMemoryImpl::default()));
 
@@ -55,14 +54,14 @@ fn _get_profile(id: String) -> Option<UserProfile> {
 #[ic_cdk::query]
 fn get_self_info() -> Result<UserProfile, IcpUserError> {
     let caller: String = ic_cdk::api::caller().to_text();
-    let user = _get_profile(caller);
+    let user = _get_profile(caller.clone());
     user.ok_or(IcpUserError::UserNotFound)
 }
 
 #[ic_cdk::update]
 fn create_new_profile(value: UserProfileCreator) -> Result<UserProfile, IcpUserError> {
     let caller = ic_cdk::api::caller();
-    if let Some(_) = _get_profile(caller.to_text()) {
+    if _get_profile(caller.to_text()).is_some() {
         return Err(IcpUserError::UserAlreadyExist);
     }
     let new_profile = UserProfile::create(caller, value);
@@ -81,7 +80,7 @@ fn update_user_profile(value: UserProfileUpdater) -> Result<UserProfile, IcpUser
         USERS.with(|p| p.borrow_mut().insert(user.id.to_text(), user.clone()));
         return Ok(user);
     }
-    return Err(IcpUserError::UserNotFound);
+    Err(IcpUserError::UserNotFound)
 }
 
 // endregion: User
@@ -96,11 +95,11 @@ fn _get_paste_by_id(id: String) -> Option<PasteData> {
 fn _get_pastes_from_vec(ids: Vec<String>) -> Option<Vec<PasteData>> {
     let mut pastes = vec![];
     for idx in ids {
-        let paste = _get_paste_by_id(idx);
-        if let None = paste {
+        if let Some(paste) = _get_paste_by_id(idx) {
+            pastes.push(paste);
+        } else {
             return None;
         }
-        pastes.push(paste.unwrap());
     }
     Some(pastes)
 }
@@ -122,28 +121,28 @@ fn _is_short_url_exist(short_url: &String) -> bool {
 // region PasteQuery
 #[ic_cdk::query]
 fn get_paste_by_index(index: String) -> Result<PasteData, IcpPasteError> {
-    let paste = _get_paste_by_id(index);
-    paste.ok_or(IcpPasteError::PasteNotFound)
+    if let Some(paste) = _get_paste_by_id(index) {
+        Ok(paste)
+    } else {
+        Err(IcpPasteError::PasteNotFound)
+    }
 }
 
 // if caller is Some(val) return pastes of given user otherwise pastes of caller
 #[ic_cdk::query]
 fn get_paste_by_user(caller: Option<Principal>) -> Result<Vec<PasteData>, IcpPasteError> {
-    let id = if None == caller {
-        ic_cdk::caller()
+    let id = if let Some(caller_id) = caller {
+        caller_id
     } else {
-        caller.unwrap()
+        ic_cdk::api::caller()
     };
 
-    let user = _get_profile(id.to_text());
-    if let None = user {
-        return Err(IcpPasteError::PasteNotFound);
+    if let Some(user) = _get_profile(id.to_text()) {
+        if let Some(pastes) = _get_pastes_from_vec(user.paste_indexs) {
+            return Ok(pastes);
+        }
     }
-
-    let user = user.unwrap();
-    let pastes = _get_pastes_from_vec(user.paste_indexs);
-
-    pastes.ok_or(IcpPasteError::PasteNotFound)
+    Err(IcpPasteError::PasteNotFound)
 }
 
 // if count is None just return 10 pastes otherwise return count pastes from last paste
@@ -151,24 +150,19 @@ fn get_paste_by_user(caller: Option<Principal>) -> Result<Vec<PasteData>, IcpPas
 fn get_last_n_paste(count: Option<u8>) -> Result<Vec<PasteData>, IcpPasteError> {
     let mut pastes = vec![];
     let mut ids = vec![];
-    let mut count = if None == count { 10 } else { count.unwrap() } as u64;
-    if count > 10 {
-        count = 10;
-    }
+    let count = count.unwrap_or(10) as u64;
+
     PASTES.with(|p| {
         for (k, _) in p.borrow().iter() {
             ids.push(k.to_string());
         }
     });
-    let ids = ids.into_iter().rev();
-    for idx in ids {
-        let paste = _get_paste_by_id(idx);
-        if let None = paste {
+
+    for idx in ids.into_iter().rev().take(count as usize) {
+        if let Some(paste) = _get_paste_by_id(idx) {
+            pastes.push(paste);
+        } else {
             return Err(IcpPasteError::PasteNotFound);
-        }
-        pastes.push(paste.unwrap());
-        if pastes.len() as u64 >= count {
-            break;
         }
     }
     Ok(pastes)
@@ -218,12 +212,12 @@ fn find_paste_by_name(name: String) -> Result<Vec<PasteData>, IcpPasteError> {
 
 #[ic_cdk::query]
 fn find_paste_by_short_url(short_url: String) -> Result<PasteData, IcpPasteError> {
-    let paste_id = PASTES_SHORT_URL.with(|p| p.borrow().get(&short_url));
-    if paste_id.is_none() {
-        return Err(IcpPasteError::PasteNotFound);
+    if let Some(paste_id) = PASTES_SHORT_URL.with(|p| p.borrow().get(&short_url)) {
+        if let Some(paste) = _get_paste_by_id(paste_id.to_string()) {
+            return Ok(paste);
+        }
     }
-    let paste = _get_paste_by_id(paste_id.unwrap());
-    paste.ok_or(IcpPasteError::PasteNotFound)
+    Err(IcpPasteError::PasteNotFound)
 }
 
 // endregion PasteQuery
@@ -235,12 +229,12 @@ fn create_new_paste(value: PasteDataCreator) -> Result<PasteData, IcpPasteError>
     let short = short_url.clone().unwrap_or("".to_string());
 
     // check short_url length and
-    if short_url.is_some() && (short.len() < MIN_SHORT_SIZE || short.len() > MAX_SHORT_SIZE) {
+    if short.len() < MIN_SHORT_SIZE || short.len() > MAX_SHORT_SIZE {
         return Err(IcpPasteError::ShortUrlShouldBeBetween4And10);
     }
 
     // short url should be unique
-    if short_url.is_some() && _is_short_url_exist(&short) {
+    if _is_short_url_exist(&short) {
         return Err(IcpPasteError::ShortUrlAlreadyExist);
     }
 
@@ -256,7 +250,7 @@ fn create_new_paste(value: PasteDataCreator) -> Result<PasteData, IcpPasteError>
     };
 
     // check expire date if user is anonymous expire date hard coded to 4 hours
-    let _expire_time = if is_user_anon {
+    let expire_time = if is_user_anon {
         FOUR_HOUR_IN_SEC
     } else if value.expire_date < MIN_EXPIRE_TIME || value.expire_date > SECOND_IN_YEAR {
         return Err(IcpPasteError::WrongExpireDate);
@@ -282,17 +276,17 @@ fn create_new_paste(value: PasteDataCreator) -> Result<PasteData, IcpPasteError>
 
     if !is_user_anon {
         let mut user = user.unwrap();
-
         user.add_new_paste(new_paste_id.clone());
-
         USERS.with(|p| p.borrow_mut().insert(user.id.to_text(), user));
     }
-    let mut cloned_paste = new_paste.clone();
 
-    ic_cdk_timers::set_timer(Duration::from_secs(_expire_time as u64), move || {
-        cloned_paste.clear();
-        PASTES.with(|p| p.borrow_mut().insert(new_paste_id, cloned_paste));
+    let cloned_paste = new_paste.clone();
+    ic_cdk_timers::set_timer(Duration::from_secs(expire_time as u64), move || {
+        let mut expired_paste = cloned_paste.clone();
+        expired_paste.clear();
+        PASTES.with(|p| p.borrow_mut().insert(new_paste_id, expired_paste));
     });
+
     Ok(new_paste)
 }
 
@@ -304,7 +298,7 @@ fn update_paste(paste_id: String, value: PasteDataUpdater) -> Result<PasteData, 
     if is_user_none {
         return Err(IcpPasteError::PasteIsNotAccessable);
     }
-    let paste = _get_paste_by_id(paste_id);
+    let paste = _get_paste_by_id(paste_id.clone());
     let is_paste_none = paste.is_none();
     if is_paste_none {
         return Err(IcpPasteError::PasteNotFound);
